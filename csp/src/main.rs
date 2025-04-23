@@ -11,9 +11,23 @@ struct Opt {
     cgroup_path: std::path::PathBuf,
 }
 
+// First of all, we need to list running containers using podman-api interface
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
+    let podman = Podman::unix("/var/folders/68/_tgl__q15p1bbh8c_3__wby80000gn/T/podman/podman-machine-default-api.sock");
+
+    let opts = ContainerListOpts::builder()
+        .all(false) // only running containers
+        .build();
+
+    let containers = podman.containers().list(&opts).await?;
+  
+    for container in containers {
+        let names = container.names.unwrap_or_default().join(", ");
+        println!("ID: {}, Nombres: {}", container.id.unwrap_or_default(), names);
+    }
 
     env_logger::init();
 
