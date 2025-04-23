@@ -3,6 +3,7 @@ use aya::programs::{links::CgroupAttachMode, CgroupSkb, CgroupSkbAttachType};
 use clap::Parser;
 #[rustfmt::skip]
 use log::{debug, warn};
+use podman_api::{opts::ContainerListOpts, Podman};
 use tokio::signal;
 
 #[derive(Debug, Parser)]
@@ -16,17 +17,29 @@ struct Opt {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
-    let podman = Podman::unix("/var/folders/68/_tgl__q15p1bbh8c_3__wby80000gn/T/podman/podman-machine-default-api.sock");
+    let podman = Podman::unix("/run/user/1000/podman/podman.sock");
 
     let opts = ContainerListOpts::builder()
-        .all(false) // only running containers
+        .all(true) // only running containers
         .build();
 
     let containers = podman.containers().list(&opts).await?;
-  
-    for container in containers {
-        let names = container.names.unwrap_or_default().join(", ");
-        println!("ID: {}, Nombres: {}", container.id.unwrap_or_default(), names);
+    
+    for summary in containers {
+        if let Some(id) = summary.id {
+            let container = podman.containers().get(&id);
+
+            let inspect = container.inspect().await?;
+
+            if let Some(state) = inspect.state {
+                println!("Container ID: {}", id);
+                if let Some(cgroup_path) = state.cgroup_path {
+                    println!("  CGroup Path: {}", cgroup_path);
+                } else {
+                    println!("  CGroup Path: not available");
+                }
+            }
+        }
     }
 
     env_logger::init();
