@@ -1,46 +1,18 @@
 use anyhow::Context as _;
 use aya::programs::{links::CgroupAttachMode, CgroupSkb, CgroupSkbAttachType};
-use clap::Parser;
+use log::info;
 #[rustfmt::skip]
 use log::{debug, warn};
-use podman_api::{opts::ContainerListOpts, Podman};
+use podman::return_container_data;
 use tokio::signal;
 
-#[derive(Debug, Parser)]
-struct Opt {
-    #[clap(short, long, default_value = "/sys/fs/cgroup")]
-    cgroup_path: std::path::PathBuf,
-}
-
-// First of all, we need to list running containers using podman-api interface
+mod podman;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let opt = Opt::parse();
-    let podman = Podman::unix("/run/user/1000/podman/podman.sock");
-
-    let opts = ContainerListOpts::builder()
-        .all(true) // only running containers
-        .build();
-
-    let containers = podman.containers().list(&opts).await?;
-    
-    for summary in containers {
-        if let Some(id) = summary.id {
-            let container = podman.containers().get(&id);
-
-            let inspect = container.inspect().await?;
-
-            if let Some(state) = inspect.state {
-                println!("Container ID: {}", id);
-                if let Some(cgroup_path) = state.cgroup_path {
-                    println!("  CGroup Path: {}", cgroup_path);
-                } else {
-                    println!("  CGroup Path: not available");
-                }
-            }
-        }
-    }
+    let podman = podman::get_podman_client();
+    let containers = podman::list_containers(&podman, true).await?;
+    let data = return_container_data(&podman,containers).await?;
 
     env_logger::init();
 
@@ -67,16 +39,23 @@ async fn main() -> anyhow::Result<()> {
         // This can happen if you remove all log statements from your eBPF program.
         warn!("failed to initialize eBPF logger: {}", e);
     }
-    let Opt { cgroup_path } = opt;
-    let cgroup =
-        std::fs::File::open(&cgroup_path).with_context(|| format!("{}", cgroup_path.display()))?;
     let program: &mut CgroupSkb = ebpf.program_mut("csp").unwrap().try_into()?;
     program.load()?;
-    program.attach(
-        cgroup,
-        CgroupSkbAttachType::Egress,
-        CgroupAttachMode::default(),
-    )?;
+
+    for container_data in data {
+        let cgroup_file = std::fs::File::open(&container_data.cgroup_path)
+            .with_context(|| format!("{}", container_data.cgroup_path))?;
+        
+        program.attach(
+            &cgroup_file,
+            CgroupSkbAttachType::Egress,
+            CgroupAttachMode::default(),
+        )?;
+        info!(
+            "Monitoring traffic for container {} with cgroup path {} and id {}",
+            container_data.name, container_data.cgroup_path, container_data.id
+        );
+    }
 
     let ctrl_c = signal::ctrl_c();
     println!("Waiting for Ctrl-C...");
