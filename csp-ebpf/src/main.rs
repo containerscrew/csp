@@ -1,12 +1,10 @@
 #![no_std]
 #![no_main]
 
-
 use aya_ebpf::{macros::cgroup_skb, programs::SkBuffContext};
 
-use aya_log_ebpf::info;
-use network_types::{eth::EthHdr, ip::{IpProto, Ipv4Hdr}};
-
+use aya_log_ebpf::{info, warn};
+use network_types::ip::{IpProto, Ipv4Hdr};
 
 const ETH_P_IP: u16 = 0x0800;
 const ETH_P_IPV6: u16 = 0x86DD;
@@ -26,28 +24,39 @@ fn try_csp(ctx: SkBuffContext) -> Result<i32, i32> {
     match eth_proto {
         ETH_P_IP => {
             // Handle IPv4 packets
-            // let dst_addr = ctx.load::<u32>(offset_of!(Ipv4Hdr, dst_addr))
-            //     .map_err(|_| 0)?;
-            let ip_hdr = ctx.load::<Ipv4Hdr>(EthHdr::LEN).map_err(|_| 0)?;
+            // Load only the 'proto' field from the IPv4 header using its byte offset.
+            // Useful when you want a specific field without reading the entire struct.
+            //let prot = ctx.load::<IpProto>offset_of!(Ipv4Hdr, proto)).map_err(|_| 0)?;
 
-            let proto = ip_hdr.proto;
-            match proto {
+
+            // In cgroup_skb programs, especially in container environments (e.g., Podman, Docker),
+            // the Ethernet header is typically stripped by the time the packet reaches this hook.
+            // This is because virtual interfaces (like veth) used by containers pass the packet
+            // further into the networking stack, where layer 2 (Ethernet) data is no longer present.
+            // Therefore, we start reading directly from offset 0, which corresponds to the IP header.
+            let ip_hdr = ctx.load::<Ipv4Hdr>(0).map_err(|_| {
+                warn!(&ctx, "Error loading Ipv4Hdr");
+                0
+            })?;
+
+            let dst_addr = ip_hdr.dst_addr();
+            let src_addr = ip_hdr.src_addr();
+
+            match ip_hdr.proto {
                 IpProto::Tcp => {
-                    info!(&ctx, "TCP packet detected");
+                    info!(&ctx, "TCP connection. Src: {} Dst: {}", src_addr, dst_addr);
                 }
                 IpProto::Udp => {
-                    info!(&ctx, "UDP packet detected");
+                    info!(&ctx, "UDP connection. Src: {} Dst: {}", src_addr, dst_addr);
                 }
                 IpProto::Icmp => {
                     info!(&ctx, "ICMP packet detected");
                 }
-                _ => return Ok(1),
+                _ => {
+                    info!(&ctx, "Unknown IP protocol");
+                    return Ok(1)
+                },
             }
-
-            let dst_addr = ip_hdr.dst_addr();
-            let src_addr = ip_hdr.src_addr();
-            
-            info!(&ctx, "IPv4 packet detected. Src: {} Dst: {}", src_addr, dst_addr);
             
         },
         ETH_P_IPV6 => {
@@ -60,6 +69,7 @@ fn try_csp(ctx: SkBuffContext) -> Result<i32, i32> {
         }
     }
 
+    // Allow the packet to pass through
     Ok(1)
 }
 

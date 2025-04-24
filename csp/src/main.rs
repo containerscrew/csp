@@ -3,7 +3,7 @@ use aya::programs::{links::CgroupAttachMode, CgroupSkb, CgroupSkbAttachType};
 use log::info;
 #[rustfmt::skip]
 use log::{debug, warn};
-use podman::return_container_data;
+use podman::get_container_data;
 use tokio::signal;
 
 mod podman;
@@ -12,7 +12,7 @@ mod podman;
 async fn main() -> anyhow::Result<()> {
     let podman = podman::get_podman_client();
     let containers = podman::list_containers(&podman, true).await?;
-    let data = return_container_data(&podman,containers).await?;
+    let data = get_container_data(&podman,containers).await?;
 
     env_logger::init();
 

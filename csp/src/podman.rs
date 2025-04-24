@@ -22,7 +22,7 @@ pub async fn list_containers(podman: &Podman, all: bool) -> Result<Vec<ListConta
     Ok(containers)
 }
 
-pub async fn return_container_data(podman: &Podman, containers: Vec<ListContainer>) -> Result<Vec<ContainerData>, anyhow::Error> {
+pub async fn get_container_data(podman: &Podman, containers: Vec<ListContainer>) -> Result<Vec<ContainerData>, anyhow::Error> {
 
     let mut available_containers = Vec::new();
 
