@@ -1,12 +1,17 @@
+use std::net::Ipv4Addr;
+
 use anyhow::Context as _;
-use aya::programs::{links::CgroupAttachMode, CgroupSkb, CgroupSkbAttachType};
+use aya::{maps::{MapData, RingBuf}, programs::{links::CgroupAttachMode, CgroupSkb, CgroupSkbAttachType}};
+use csp_common::NetworkEvent;
 use log::info;
 #[rustfmt::skip]
 use log::{debug, warn};
 use podman::get_container_data;
-use tokio::signal;
+use utils::{convert_protocol, wait_for_shutdown};
+
 
 mod podman;
+mod utils;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -35,10 +40,12 @@ async fn main() -> anyhow::Result<()> {
         env!("OUT_DIR"),
         "/csp"
     )))?;
+
     if let Err(e) = aya_log::EbpfLogger::init(&mut ebpf) {
         // This can happen if you remove all log statements from your eBPF program.
         warn!("failed to initialize eBPF logger: {}", e);
     }
+
     let program: &mut CgroupSkb = ebpf.program_mut("csp").unwrap().try_into()?;
     program.load()?;
 
@@ -57,10 +64,37 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let ctrl_c = signal::ctrl_c();
-    println!("Waiting for Ctrl-C...");
-    ctrl_c.await?;
-    println!("Exiting...");
+    let network_event_ring_map = ebpf
+    .take_map("NETWORK_EVENT")
+    .ok_or_else(|| anyhow::anyhow!("Failed to find ring buffer NETWORK_EVENT map"))?;
+
+    let ring_buf = RingBuf::try_from(network_event_ring_map)?;
+
+    tokio::spawn(async move { process_event(ring_buf).await });
+
+    let _ = wait_for_shutdown().await;
 
     Ok(())
+}
+
+async fn process_event(mut ring_buf: RingBuf<MapData>) -> Result<(), anyhow::Error> {
+    loop {
+        while let Some(event) = ring_buf.next() {
+            // Get the data from the event
+            let data = event.as_ref();
+
+            // Make sure the data is the correct size
+            if data.len() == std::mem::size_of::<NetworkEvent>() {
+                let event: &NetworkEvent = unsafe { &*(data.as_ptr() as *const NetworkEvent) };
+                // Process the event
+                info!(
+                    "Received event: src_addr: {}, dst_addr: {}, protocol: {}",
+                    Ipv4Addr::from(event.src_addr), Ipv4Addr::from(event.dst_addr), convert_protocol(event.protocol)
+                );
+            }
+        }
+
+        // Sleep for a while
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }

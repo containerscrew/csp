@@ -1,13 +1,19 @@
 #![no_std]
 #![no_main]
 
-use aya_ebpf::{macros::cgroup_skb, programs::SkBuffContext};
+use aya_ebpf::{macros::{cgroup_skb, map}, maps::RingBuf, programs::SkBuffContext};
 
 use aya_log_ebpf::{info, warn};
-use network_types::ip::{IpProto, Ipv4Hdr};
+use csp_common::NetworkEvent;
+use network_types::ip::Ipv4Hdr;
+
+
+#[map]
+pub static NETWORK_EVENT: RingBuf = RingBuf::with_byte_size(4096, 0);
 
 const ETH_P_IP: u16 = 0x0800;
 const ETH_P_IPV6: u16 = 0x86DD;
+
 
 #[cgroup_skb]
 pub fn csp(ctx: SkBuffContext) -> i32 {
@@ -39,24 +45,35 @@ fn try_csp(ctx: SkBuffContext) -> Result<i32, i32> {
                 0
             })?;
 
-            let dst_addr = ip_hdr.dst_addr();
-            let src_addr = ip_hdr.src_addr();
+            let dst_addr = ip_hdr.dst_addr().to_bits();
+            let src_addr = ip_hdr.src_addr().to_bits();
 
-            match ip_hdr.proto {
-                IpProto::Tcp => {
-                    info!(&ctx, "TCP connection. Src: {} Dst: {}", src_addr, dst_addr);
-                }
-                IpProto::Udp => {
-                    info!(&ctx, "UDP connection. Src: {} Dst: {}", src_addr, dst_addr);
-                }
-                IpProto::Icmp => {
-                    info!(&ctx, "ICMP packet detected");
-                }
-                _ => {
-                    info!(&ctx, "Unknown IP protocol");
-                    return Ok(1)
-                },
+            let network_event = NetworkEvent {
+                src_addr,
+                dst_addr,
+                protocol: ip_hdr.proto as u8,
+            };
+
+            if let Some(mut data) = NETWORK_EVENT.reserve::<NetworkEvent>(0) {
+                unsafe { *data.as_mut_ptr() = network_event }
+                data.submit(0);
             }
+
+            // match ip_hdr.proto {
+            //     IpProto::Tcp => {
+            //         info!(&ctx, "TCP connection. Src: {} Dst: {}", src_addr, dst_addr);
+            //     }
+            //     IpProto::Udp => {
+            //         info!(&ctx, "UDP connection. Src: {} Dst: {}", src_addr, dst_addr);
+            //     }
+            //     IpProto::Icmp => {
+            //         info!(&ctx, "ICMP packet detected");
+            //     }
+            //     _ => {
+            //         info!(&ctx, "Unknown IP protocol");
+            //         return Ok(1)
+            //     },
+            // }
             
         },
         ETH_P_IPV6 => {
