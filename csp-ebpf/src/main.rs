@@ -1,12 +1,14 @@
 #![no_std]
 #![no_main]
 
-use aya_ebpf::{macros::{cgroup_skb, map}, maps::RingBuf, programs::SkBuffContext};
-
+use aya_ebpf::{
+    macros::{cgroup_skb, map},
+    maps::RingBuf,
+    programs::SkBuffContext,
+};
 use aya_log_ebpf::{info, warn};
 use csp_common::NetworkEvent;
 use network_types::ip::Ipv4Hdr;
-
 
 #[map]
 pub static NETWORK_EVENT: RingBuf = RingBuf::with_byte_size(4096, 0);
@@ -14,12 +16,11 @@ pub static NETWORK_EVENT: RingBuf = RingBuf::with_byte_size(4096, 0);
 const ETH_P_IP: u16 = 0x0800;
 const ETH_P_IPV6: u16 = 0x86DD;
 
-
 #[cgroup_skb]
 pub fn csp(ctx: SkBuffContext) -> i32 {
     match try_csp(ctx) {
         Ok(ret) => ret,
-        Err(ret) => ret, 
+        Err(ret) => ret,
     }
 }
 
@@ -30,10 +31,10 @@ fn try_csp(ctx: SkBuffContext) -> Result<i32, i32> {
     match eth_proto {
         ETH_P_IP => {
             // Handle IPv4 packets
+            // Another way to get the protocol field from the IPv4 header
             // Load only the 'proto' field from the IPv4 header using its byte offset.
             // Useful when you want a specific field without reading the entire struct.
             //let prot = ctx.load::<IpProto>offset_of!(Ipv4Hdr, proto)).map_err(|_| 0)?;
-
 
             // In cgroup_skb programs, especially in container environments (e.g., Podman, Docker),
             // the Ethernet header is typically stripped by the time the packet reaches this hook.
@@ -58,28 +59,11 @@ fn try_csp(ctx: SkBuffContext) -> Result<i32, i32> {
                 unsafe { *data.as_mut_ptr() = network_event }
                 data.submit(0);
             }
-
-            // match ip_hdr.proto {
-            //     IpProto::Tcp => {
-            //         info!(&ctx, "TCP connection. Src: {} Dst: {}", src_addr, dst_addr);
-            //     }
-            //     IpProto::Udp => {
-            //         info!(&ctx, "UDP connection. Src: {} Dst: {}", src_addr, dst_addr);
-            //     }
-            //     IpProto::Icmp => {
-            //         info!(&ctx, "ICMP packet detected");
-            //     }
-            //     _ => {
-            //         info!(&ctx, "Unknown IP protocol");
-            //         return Ok(1)
-            //     },
-            // }
-            
-        },
+        }
         ETH_P_IPV6 => {
             // Handle IPv6 packets
             info!(&ctx, "IPv6 packet detected");
-        },
+        }
         _ => {
             info!(&ctx, "Unknown protocol {}", protocol);
             return Ok(1);

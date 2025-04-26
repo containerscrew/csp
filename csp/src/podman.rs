@@ -1,6 +1,5 @@
 use podman_api::{models::ListContainer, opts::ContainerListOpts, Podman};
 
-
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct ContainerData {
@@ -13,17 +12,20 @@ pub fn get_podman_client() -> Podman {
     Podman::unix("/run/user/1000/podman/podman.sock")
 }
 
-pub async fn list_containers(podman: &Podman, all: bool) -> Result<Vec<ListContainer>, anyhow::Error>{
-    let opts = ContainerListOpts::builder()
-        .all(all)
-        .build();
+pub async fn list_containers(
+    podman: &Podman,
+    all: bool,
+) -> Result<Vec<ListContainer>, anyhow::Error> {
+    let opts = ContainerListOpts::builder().all(all).build();
 
     let containers = podman.containers().list(&opts).await?;
     Ok(containers)
 }
 
-pub async fn get_container_data(podman: &Podman, containers: Vec<ListContainer>) -> Result<Vec<ContainerData>, anyhow::Error> {
-
+pub async fn get_container_data(
+    podman: &Podman,
+    containers: Vec<ListContainer>,
+) -> Result<Vec<ContainerData>, anyhow::Error> {
     let mut available_containers = Vec::new();
 
     for data in containers {
@@ -43,7 +45,7 @@ pub async fn get_container_data(podman: &Podman, containers: Vec<ListContainer>)
                 } else {
                     // cgroup is mandatory to sniff traffic
                     // without cgroup, we cannot sniff traffic
-                    break;
+                    continue;
                 }
             }
         }

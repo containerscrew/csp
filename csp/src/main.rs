@@ -1,36 +1,46 @@
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, process::exit};
 
 use anyhow::Context as _;
-use aya::{maps::{MapData, RingBuf}, programs::{links::CgroupAttachMode, CgroupSkb, CgroupSkbAttachType}};
+use aya::{
+    maps::{MapData, RingBuf},
+    programs::{links::CgroupAttachMode, CgroupSkb, CgroupSkbAttachType},
+};
 use csp_common::NetworkEvent;
+use libc::getuid;
 use log::info;
 #[rustfmt::skip]
-use log::{debug, warn};
+use log::warn;
+use logger::init_logger;
 use podman::get_container_data;
-use utils::{convert_protocol, wait_for_shutdown};
+use tracing::error;
+use utils::{check_is_root_user, convert_protocol, set_mem_limit, wait_for_shutdown};
 
-
+mod logger;
 mod podman;
 mod utils;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Initialize the logger
+    init_logger("info", "text");
+
+    // This program must be run as root. Ebpf requires privileges
+    let uid = unsafe { getuid() };
+    if let Err(e) = check_is_root_user(uid) {
+        error!("{}", e);
+        exit(1);
+    }
+
     let podman = podman::get_podman_client();
     let containers = podman::list_containers(&podman, true).await?;
-    let data = get_container_data(&podman,containers).await?;
+    let data = get_container_data(&podman, containers).await?;
 
-    env_logger::init();
-
-    // Bump the memlock rlimit. This is needed for older kernels that don't use the
-    // new memcg based accounting, see https://lwn.net/Articles/837122/
-    let rlim = libc::rlimit {
-        rlim_cur: libc::RLIM_INFINITY,
-        rlim_max: libc::RLIM_INFINITY,
-    };
-    let ret = unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rlim) };
-    if ret != 0 {
-        debug!("remove limit on locked memory failed, ret is: {}", ret);
+    if data.is_empty() {
+        warn!("No containers found. Please make sure you have running containers. Hint: $ podman ps -a");
+        return Ok(());
     }
+
+    set_mem_limit();
 
     // This will include your eBPF object file as raw bytes at compile-time and load it at
     // runtime. This approach is recommended for most real-world use cases. If you would
@@ -52,21 +62,18 @@ async fn main() -> anyhow::Result<()> {
     for container_data in data {
         let cgroup_file = std::fs::File::open(&container_data.cgroup_path)
             .with_context(|| format!("{}", container_data.cgroup_path))?;
-        
+
         program.attach(
             &cgroup_file,
             CgroupSkbAttachType::Egress,
             CgroupAttachMode::default(),
         )?;
-        info!(
-            "Monitoring traffic for container {} with cgroup path {} and id {}",
-            container_data.name, container_data.cgroup_path, container_data.id
-        );
+        info!("Sniffing container traffic: {}", container_data.name);
     }
 
     let network_event_ring_map = ebpf
-    .take_map("NETWORK_EVENT")
-    .ok_or_else(|| anyhow::anyhow!("Failed to find ring buffer NETWORK_EVENT map"))?;
+        .take_map("NETWORK_EVENT")
+        .ok_or_else(|| anyhow::anyhow!("Failed to find ring buffer NETWORK_EVENT map"))?;
 
     let ring_buf = RingBuf::try_from(network_event_ring_map)?;
 
@@ -89,7 +96,9 @@ async fn process_event(mut ring_buf: RingBuf<MapData>) -> Result<(), anyhow::Err
                 // Process the event
                 info!(
                     "Received event: src_addr: {}, dst_addr: {}, protocol: {}",
-                    Ipv4Addr::from(event.src_addr), Ipv4Addr::from(event.dst_addr), convert_protocol(event.protocol)
+                    Ipv4Addr::from(event.src_addr),
+                    Ipv4Addr::from(event.dst_addr),
+                    convert_protocol(event.protocol)
                 );
             }
         }
