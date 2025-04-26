@@ -1,4 +1,4 @@
-# csp 
+# csp (Container Snoop) 🐝
 
 _A Lightweight eBPF Tool to Monitor Podman Traffic via cgroup Hooks_
 
