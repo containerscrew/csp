@@ -1,11 +1,12 @@
-use std::{net::Ipv4Addr, process::exit};
+use std::{net::{Ipv4Addr, Ipv6Addr}, process::exit};
 
 use anyhow::Context as _;
 use aya::{
     maps::{MapData, RingBuf},
     programs::{links::CgroupAttachMode, CgroupSkb, CgroupSkbAttachType},
 };
-use csp_common::NetworkEvent;
+
+use csp_common::{NetworkEventIpv4, NetworkEventIpv6};
 use libc::getuid;
 use log::info;
 #[rustfmt::skip]
@@ -71,18 +72,49 @@ async fn main() -> anyhow::Result<()> {
         info!("Sniffing container traffic: {}", container_data.name);
     }
 
-    let network_event_ring_map = ebpf
-        .take_map("NETWORK_EVENT")
-        .ok_or_else(|| anyhow::anyhow!("Failed to find ring buffer NETWORK_EVENT map"))?;
+    let network_event_ipv4_rinf_map = ebpf
+        .take_map("NETWORK_EVENT_IPV4")
+        .ok_or_else(|| anyhow::anyhow!("Failed to find ring buffer NETWORK_EVENT_IPV4 map"))?;
 
-    let ring_buf = RingBuf::try_from(network_event_ring_map)?;
+    let ring_buf_ipv4 = RingBuf::try_from(network_event_ipv4_rinf_map)?;
 
-    tokio::spawn(async move { process_event(ring_buf).await });
+    // let network_event_ipv6_rinf_map = ebpf
+    //     .take_map("NETWORK_EVENT_IPV6")
+    //     .ok_or_else(|| anyhow::anyhow!("Failed to find ring buffer NETWORK_EVENT_IPV6 map"))?;
+
+    //let ring_buf_ipv6 = RingBuf::try_from(network_event_ipv6_rinf_map)?;
+
+    tokio::spawn(async move { process_event(ring_buf_ipv4).await });
+    //tokio::spawn(async move { process_ipv6_event(ring_buf_ipv6).await });
 
     let _ = wait_for_shutdown().await;
 
     Ok(())
 }
+
+// async fn process_ipv6_event(mut ring_buf: RingBuf<MapData>) -> Result<(), anyhow::Error> {
+//     loop {
+//         while let Some(event) = ring_buf.next() {
+//             // Get the data from the event
+//             let data = event.as_ref();
+
+//             // Make sure the data is the correct size
+//             if data.len() == std::mem::size_of::<NetworkEventIpv6>() {
+//                 let event: &NetworkEventIpv6 = unsafe { &*(data.as_ptr() as *const NetworkEventIpv6) };
+//                 // Process the event
+//                 info!(
+//                     "Received event: src_addr: {}, dst_addr: {}, protocol: {}",
+//                     Ipv6Addr::from(event.src_addr),
+//                     Ipv6Addr::from(event.dst_addr),
+//                     convert_protocol(event.protocol)
+//                 );
+//             }
+//         }
+
+//         // Sleep for a while
+//         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+//     }
+// }
 
 async fn process_event(mut ring_buf: RingBuf<MapData>) -> Result<(), anyhow::Error> {
     loop {
@@ -91,8 +123,8 @@ async fn process_event(mut ring_buf: RingBuf<MapData>) -> Result<(), anyhow::Err
             let data = event.as_ref();
 
             // Make sure the data is the correct size
-            if data.len() == std::mem::size_of::<NetworkEvent>() {
-                let event: &NetworkEvent = unsafe { &*(data.as_ptr() as *const NetworkEvent) };
+            if data.len() == std::mem::size_of::<NetworkEventIpv4>() {
+                let event: &NetworkEventIpv4 = unsafe { &*(data.as_ptr() as *const NetworkEventIpv4) };
                 // Process the event
                 info!(
                     "Received event: src_addr: {}, dst_addr: {}, protocol: {}",
