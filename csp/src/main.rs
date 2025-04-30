@@ -1,12 +1,11 @@
-use std::{net::{Ipv4Addr, Ipv6Addr}, process::exit};
+use std::{net::Ipv4Addr, process::exit};
 
 use anyhow::Context as _;
 use aya::{
     maps::{MapData, RingBuf},
     programs::{links::CgroupAttachMode, CgroupSkb, CgroupSkbAttachType},
 };
-
-use csp_common::{NetworkEventIpv4, NetworkEventIpv6};
+use csp_common::NetworkEventIpv4;
 use libc::getuid;
 use log::info;
 #[rustfmt::skip]
@@ -52,10 +51,10 @@ async fn main() -> anyhow::Result<()> {
         "/csp"
     )))?;
 
-    if let Err(e) = aya_log::EbpfLogger::init(&mut ebpf) {
-        // This can happen if you remove all log statements from your eBPF program.
-        warn!("failed to initialize eBPF logger: {}", e);
-    }
+    // if let Err(e) = aya_log::EbpfLogger::init(&mut ebpf) {
+    //     // This can happen if you remove all log statements from your eBPF program.
+    //     warn!("failed to initialize eBPF logger: {}", e);
+    // }
 
     let program: &mut CgroupSkb = ebpf.program_mut("csp").unwrap().try_into()?;
     program.load()?;
@@ -124,7 +123,8 @@ async fn process_event(mut ring_buf: RingBuf<MapData>) -> Result<(), anyhow::Err
 
             // Make sure the data is the correct size
             if data.len() == std::mem::size_of::<NetworkEventIpv4>() {
-                let event: &NetworkEventIpv4 = unsafe { &*(data.as_ptr() as *const NetworkEventIpv4) };
+                let event: &NetworkEventIpv4 =
+                    unsafe { &*(data.as_ptr() as *const NetworkEventIpv4) };
                 // Process the event
                 info!(
                     "Received event: src_addr: {}, dst_addr: {}, protocol: {}",

@@ -7,14 +7,14 @@ use aya_ebpf::{
     programs::SkBuffContext,
 };
 use aya_log_ebpf::{info, warn};
-use csp_common::{NetworkEventIpv4, NetworkEventIpv6};
-use network_types::ip::{Ipv4Hdr, Ipv6Hdr};
+use csp_common::NetworkEventIpv4;
+use network_types::ip::Ipv4Hdr;
 
 #[map]
 pub static NETWORK_EVENT_IPV4: RingBuf = RingBuf::with_byte_size(4096, 0);
 
-#[map]
-pub static NETWORK_EVENT_IPV6: RingBuf = RingBuf::with_byte_size(4096, 0);
+// #[map]
+// pub static NETWORK_EVENT_IPV6: RingBuf = RingBuf::with_byte_size(4096, 0);
 
 const ETH_P_IP: u16 = 0x0800;
 const ETH_P_IPV6: u16 = 0x86DD;
@@ -58,26 +58,27 @@ fn try_csp(ctx: SkBuffContext) -> Result<i32, i32> {
             if let Some(mut data) = NETWORK_EVENT_IPV4.reserve::<NetworkEventIpv4>(0) {
                 unsafe { *data.as_mut_ptr() = network_event }
                 data.submit(0);
-            }        }
+            }
+        }
         ETH_P_IPV6 => {
             // Handle IPv6 packets
-            info!(&ctx, "IPv6 packet detected");
+            //info!(&ctx, "IPv6 packet detected");
 
-            let ip_hdr = ctx.load::<Ipv6Hdr>(0).map_err(|_| {
-                warn!(&ctx, "Error loading Ipv6Hdr");
-                0
-            })?;
+            // let ip_hdr = ctx.load::<Ipv6Hdr>(0).map_err(|_| {
+            //     warn!(&ctx, "Error loading Ipv6Hdr");
+            //     0
+            // })?;
 
-            let network_event = NetworkEventIpv6 {
-                src_addr: ip_hdr.src_addr().to_bits(),
-                dst_addr: ip_hdr.dst_addr().to_bits(),
-                protocol: ip_hdr.next_hdr as u8,
-            };
+            // let network_event = NetworkEventIpv6 {
+            //     src_addr: ip_hdr.src_addr().to_bits(),
+            //     dst_addr: ip_hdr.dst_addr().to_bits(),
+            //     protocol: ip_hdr.next_hdr as u8,
+            // };
 
-            if let Some(mut data) = NETWORK_EVENT_IPV6.reserve::<NetworkEventIpv6>(0) {
-                unsafe { *data.as_mut_ptr() = network_event }
-                data.submit(0);
-            }
+            // if let Some(mut data) = NETWORK_EVENT_IPV6.reserve::<NetworkEventIpv6>(0) {
+            //     unsafe { *data.as_mut_ptr() = network_event }
+            //     data.submit(0);
+            // }
         }
         _ => {
             info!(&ctx, "Unknown protocol {}", protocol);
@@ -88,7 +89,6 @@ fn try_csp(ctx: SkBuffContext) -> Result<i32, i32> {
     // Allow the packet to pass through
     Ok(1)
 }
-
 
 #[cfg(not(test))]
 #[panic_handler]

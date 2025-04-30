@@ -4,6 +4,10 @@ _A Lightweight eBPF Tool to Monitor Podman Traffic via cgroup Hooks_
 
 > This demo could easily be extended to sniff traffic from container runtimes like containerd or others.
 
+---
+
+> For the demo, only `IPv4` traffic has been implemented for now.
+
 # Introduction
 
 After installing `podman` in your computer, run:
@@ -12,6 +16,8 @@ After installing `podman` in your computer, run:
 systemctl --user enable --now podman.socket
 ls -l /run/user/$(id -u)/podman/podman.sock
 ```
+
+By default will use `/run/user/1000/podman/podman.sock`. If you have other path, change it in `csp/src/podman.rs`.
 
 > `I personally use Fedora 42, with kernel version 6.14.3-300.fc42.x86_64.`
 
@@ -40,5 +46,5 @@ sudo ./target/release/csp
 ```shell
 podman run --rm -itd --name ubuntu docker.io/ubuntu:latest
 podman exec -it ubuntu bash
-root@357d0bc39708:/# curl https://google.com &> /dev/null
+root@357d0bc39708: curl https://google.com &> /dev/null
 ```
