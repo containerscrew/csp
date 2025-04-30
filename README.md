@@ -1,6 +1,6 @@
 # csp (Container Snoop) 🐝
 
-_A Lightweight eBPF Tool to Monitor Podman Traffic via cgroup Hooks_
+_A Lightweight eBPF tool to monitor podman egress traffic via cgroup egress hook (cgroup/skb)_
 
 > This demo could easily be extended to sniff traffic from container runtimes like containerd or others.
 
